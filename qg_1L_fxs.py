@@ -72,6 +72,7 @@ def Lap(Dy2, kx2, Ny):
     Lap.setSizes([Ny-1,Ny-1]); Lap.setFromOptions(); Lap.setUp()
 
     Dy2Box = PETSc.Mat().createAIJ([Ny-1,Ny-1])
+    Dy2Box.setUp()
     bs,be = Dy2Box.getOwnershipRange()
     if bs == 0:
         Dy2Box[0,0:2] = Dy2[0,1:3]
