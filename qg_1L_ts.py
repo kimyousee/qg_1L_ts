@@ -155,21 +155,17 @@ if __name__ == '__main__':
         while (error > tol) and (count < max_it):
             sn = AeT*sn
             if count % 100 == 0:
-                sn = sn/sn.norm() #norm is petsc's norm for Vec
+                 sn = sn/sn.norm() #norm is petsc's norm for Vec
+
                 Asn = PETSc.Vec().createMPI(Ny-1)
                 Bsn = PETSc.Vec().createMPI(Ny-1)
                 A.mult(sn,Asn)
                 B.mult(sn,Bsn)
+                divTemp = Asn/Bsn
+                divSum = divTemp.sum()
+                lam = divSum/divTemp.getSize() #mean of Asn/Bsn
 
-                scatter, AsnSeq = PETSc.Scatter.toAll(Asn)
-                im = PETSc.InsertMode.INSERT_VALUES
-                sm = PETSc.ScatterMode.FORWARD
-                scatter.scatter(Asn,AsnSeq,im,sm)
-                scatter, BsnSeq = PETSc.Scatter.toAll(Bsn)
-                scatter.scatter(Bsn,BsnSeq,im,sm)
-                lam = np.mean(AsnSeq/BsnSeq)
-
-                error = la.norm(AsnSeq.array-lam*BsnSeq.array)
+                error = (Asn-lam*Bsn).norm()
             count +=1
         if rank == 0:
             grow[cnt] = kx*lam.real
