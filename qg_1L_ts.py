@@ -9,6 +9,7 @@ import numpy as np
 from numpy import linalg as la
 import qg_1L_fxs as fx
 import matplotlib.pyplot as plt
+import time
 
 Print = PETSc.Sys.Print # For printing with only 1 processor
 
@@ -51,8 +52,9 @@ def solve_eigensystem(A,B,grow,freq,mode,problem_type=SLEPc.EPS.ProblemType.GNHE
     return vr
 
 if __name__ == '__main__':
+    t0 = time.time()
 
-    Ny = opts.getInt('Ny',10)#400)
+    Ny = opts.getInt('Ny',100)#400)
 
     Ly = 350e03
     Lj = 20e03
@@ -69,7 +71,7 @@ if __name__ == '__main__':
     Dy2 = fx.Dy(hy, Ny, Dy2=True)
 
     Phi = fx.Phi(y, Ly, Lj, Ny)
-    U = fx.U(Dy, Phi, Ny, y, Ly, Lj, g0,f0)
+    U = fx.U(Dy, Phi, Ny)
     etaB = fx.etaB(y)
 
     F0 = f0**2/(g0*Hm)
@@ -99,6 +101,8 @@ if __name__ == '__main__':
     # frOut = open('freq.dat', 'wb')
     # mdOut = open('mode.dat', 'wb')
     cnt = 0
+    print "before for:"
+    print time.time()-t0
 
     for kx in kk[0:nk]:
 
@@ -109,7 +113,11 @@ if __name__ == '__main__':
         A = fx.A(U,Lap, F0,Dy,Q,Ny)
 
         # Solves system with slepc EPS, returns eigvec1
-        sn = solve_eigensystem(A,B,grow,freq,mode)
+        if kx == kk[0]:
+            print "first guess: "
+            t1 = time.time()
+            sn = solve_eigensystem(A,B,grow,freq,mode)
+            print time.time()-t1
 
         # Using time stepping
         A = -1j*A
@@ -117,45 +125,38 @@ if __name__ == '__main__':
         
         dt = 1e0
         dto2 = dt/2
-        tol = 1e-12
+        tol = 1e-10
 
-        AeT = PETSc.Mat().createAIJ([Ny-1,Ny-1])
-        AeT.setUp(); AeT.assemble()
         ksp = PETSc.KSP().create(PETSc.COMM_WORLD)
-        ksp.setOperators(B-dto2*A)
-        ksp.setTolerances(1e-16)
+        ksp.setOperators(B-dto2*A) #Abot
+        ksp.setTolerances(1e-9)
         pc = ksp.getPC()
         pc.setType('none')
-        ksp.setFromOptions()
+        # ksp.setFromOptions()
 
-        btemp = B+dto2*A
-        btemp.assemble()
-
-        bcol = PETSc.Vec().createMPI(Ny-1)
-        xcol = PETSc.Vec().createMPI(Ny-1)
-        bcol.setUp(); xcol.setUp()
-
-        sc,ec = bcol.getOwnershipRange()
-        for i in range(0,Ny-1):
-            bcol[sc:ec] = btemp[sc:ec,i]
-            bcol.assemble(); xcol.assemble()
-            ksp.solve(bcol,xcol)
-            AeT[sc:ec,i] = xcol[sc:ec]
-
-        AeT.assemble()
-
-        test = PETSc.Mat().createAIJ(B.getSize())
-        test = B+dt/2*A
-        test.assemble()
+        Atop = B+dto2*A
+        Atop.assemble()
+        
+        sntemp = PETSc.Vec().createMPI(Ny-1)
+        sntemp.setUp()
 
         count = 1
         error = 1
         max_it = 1e5
 
-        while (error > tol) and (count < max_it):
-            sn = AeT*sn
+        t2 = time.time()
+
+        while error > tol and count < max_it:
+            t3 = time.time()
+            sn = Atop*sn
+            sn = ksp.solve(sn,sntemp)
+            sn = sntemp
+            print "after sn solve:", time.time()-t3
             if count % 100 == 0:
-                 sn = sn/sn.norm() #norm is petsc's norm for Vec
+                t4 = time.time()
+                print "seconds to get to if: ", t4-t2
+                print "in if: "
+                sn = sn/sn.norm() #norm is petsc's norm for Vec
 
                 Asn = PETSc.Vec().createMPI(Ny-1)
                 Bsn = PETSc.Vec().createMPI(Ny-1)
@@ -166,7 +167,11 @@ if __name__ == '__main__':
                 lam = divSum/divTemp.getSize() #mean of Asn/Bsn
 
                 error = (Asn-lam*Bsn).norm()
+                print "time in if: ",time.time()-t4
+                print "error: ", error
+
             count +=1
+        print " "
         if rank == 0:
             grow[cnt] = kx*lam.real
             freq[cnt] = -kx*lam.imag
@@ -182,3 +187,4 @@ if __name__ == '__main__':
         plt.title('Growth Rate: 1-Layer QG')
         plt.savefig('Grow1L_QG.eps', format='eps', dpi=1000)
         # plt.show()
+
